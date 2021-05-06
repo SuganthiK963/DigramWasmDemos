@@ -57,14 +57,22 @@ window.measurePath = function (data) {
         var element = getChildNode(svg)[0];
         element.setAttribute('d', data);
         var bounds = element.getBBox();
-        var svgBounds = { X: bounds.x, Y: bounds.y, Width: bounds.width, Height: bounds.height };
+        var svgBounds = {x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height };
         window[measureWindowElement].style.visibility = 'hidden';
         return svgBounds;
     }
     return { X: 0, Y: 0, Width: 0, Height: 0 };
 };
 
-window.measureBounds = async function (pathobj, textObj, imageObj, nativeObj ) {
+window.measureBounds = async function (pathobj, textObj, imageObj, nativeObj) {
+    if (nativeObj != null) {
+        var accordianPanel = document.getElementsByClassName("e-acrdn-panel e-content-hide");
+        var previousValue = []
+        for (var k = 0; k < accordianPanel.length; k++) {
+            previousValue[k] = accordianPanel[k].style.display;
+            accordianPanel[k].style.display = "block"
+        }
+    }
     var finalResult = {};
     var pathResult = {};
     var textResult = {};
@@ -82,12 +90,12 @@ window.measureBounds = async function (pathobj, textObj, imageObj, nativeObj ) {
                 var data = result[i][1];
                 element.setAttribute('d', data);
                 var bounds = element.getBBox();
-                var svgBounds = { X: bounds.x, Y: bounds.y, Width: bounds.width, Height: bounds.height };
+                var svgBounds = { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height };
                 pathResult[data] = svgBounds;
             } else if (result[i][0].indexOf("GetBoundingClientRect") != -1) {
                 var dom = document.getElementById(result[i][1]);
                 var bounds = dom.getBoundingClientRect();
-                pathResult[result[i][0]] = { X: bounds.x, Y: bounds.y, Width: bounds.width, Height: bounds.height };;
+                pathResult[result[i][0]] = { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height };;
                 if (result[i][0] == "GetBoundingClientRect") {
                     window.scrollDiagramID = result[i][1];
                     pathResult["GetScrollerBounds"] = measureScrollValues(result[i][1]);
@@ -139,9 +147,277 @@ window.measureBounds = async function (pathobj, textObj, imageObj, nativeObj ) {
     finalResult["Text"] = textResult;
     finalResult["Image"] = imageResult;
     finalResult["Native"] = nativeResult;
+    if (previousValue != null) {
+        for (var k = 0; k < accordianPanel.length; k++) {
+            accordianPanel[k].style.display = previousValue[k];
+        }
+    }
     window[measureWindowElement].style.visibility = 'hidden';
     return finalResult;
 };
+
+//Symbol palette Snippet Starts here 
+window.initialiseModule = async function (element, component) {
+    
+    var symbolPaletteInstance = 'symbolPaletteInstance';
+    if (window[symbolPaletteInstance]) {
+        var object = { id: element.children[0].id, componentInstance: component }
+        window[symbolPaletteInstance].push(object);
+    } else {
+        var object = { id: element.children[0].id, componentInstance: component }
+        window[symbolPaletteInstance] = []
+        window[symbolPaletteInstance].push(object);
+    }
+    
+
+    element.addEventListener('mousedown',
+        _.throttle(e =>
+            invokePaletteEvents(e, component),
+            0)
+    );
+    element.addEventListener('mousemove', _.throttle(e =>
+        invokePaletteEvents(e, component), 0));
+    element.addEventListener('mouseup', _.throttle(e =>
+        invokePaletteEvents(e, component), 0));
+    setTimeout(function () {
+        this.symbolPaletteDragAndDropModule = new InitDraggable(element, window[symbolPaletteInstance]);
+    }, 100);
+}
+function invokePaletteEvents(e, component) {
+    const invokePaletteEvents = "InvokePaletteEvents";
+    const symbolDraggableClass = "e-symbol-draggable"
+    const symbolhoverClass = "e-symbol-hover"
+    e.preventDefault()
+    var args = PalettegetMouseEvents(e);
+    if (e.target.id.split('_').length === 2) {
+        var symbolId = e.target.id.split('_')[0];
+    }
+    if ((e.type == "mousemove" && !window.eventStarted) || e.type != "mousemove" || !window.inAction) {
+        if (e && e.target && e.type) {
+            var element = document.getElementById(e.target.id)
+            if (element) {
+                for (var k = 0; k < element.classList.length; k++) {
+                    if (element.classList[k] == symbolDraggableClass) {
+                        var container = e.target;
+                        container.classList.add(symbolhoverClass);
+                        break;
+                    }
+                }
+                var hoverElementCount = document.getElementsByClassName(symbolhoverClass)
+                if (hoverElementCount && hoverElementCount.length > 0) {
+                    for (var a = 0; a < hoverElementCount.length; a++) {
+                        var oldcontainer = hoverElementCount[a]
+                        if (container && (container != oldcontainer) || container == undefined) {
+                            oldcontainer.classList.remove(symbolhoverClass);
+
+                        }
+                    }
+                }
+            }
+        }
+        component.invokeMethodAsync(invokePaletteEvents, args, symbolId);
+
+    }
+}
+var InitDraggable =
+    /** @class */
+    function () {
+        /**
+         * Constructor for the Symbol Palette Draggable Component
+         * @hidden
+         */
+        function InitDraggable(parent, symbolPaletteInstance) {
+            var _this = this;
+            this.over = function (e) {
+                const previewElementValue = "previewElement";
+                const symbolPaletteDragEnter = "SymbolPaletteDragEnter"
+                var previewElement = document.getElementById(previewElementValue);
+                var component;
+                for (var i = symbolPaletteInstance.length - 1; i >= 0; i--) {
+                    if (e.dragData.draggable.id === symbolPaletteInstance[i].id) {
+                        component = symbolPaletteInstance[i].componentInstance;
+                        break;
+                    }
+                }
+                component.invokeMethodAsync(symbolPaletteDragEnter, e.target.id.split("_")[0]);
+                if (previewElement) {
+                    sf.base.remove(previewElement);
+                }
+            }
+            this.drop = function (e) {
+                var component;
+                const symbolPaletteDrop = "SymbolPaletteDrop";
+                const diagramClass = "e-diagram";
+                for (var i = symbolPaletteInstance.length - 1; i >= 0; i--) {
+                    if (e.dragData.draggable.id === symbolPaletteInstance[i].id) {
+                        component = symbolPaletteInstance[i].componentInstance;
+                        break;
+                    }
+                }
+                var ParentElement = parentsUntil(e.target, diagramClass)
+                component.invokeMethodAsync(symbolPaletteDrop, ParentElement.id);
+                sf.base.remove(e.droppedElement);
+            };
+            this.out = function (e) {
+                var component;
+                var symbolPaletteDragLeave = "SymbolPaletteDragLeave"
+                for (var i = symbolPaletteInstance.length - 1; i >= 0; i--) {
+                    if ((e.target.children[0].id === symbolPaletteInstance[i].id) || (e.target.parentNode.parentNode.parentElement.id === symbolPaletteInstance[i].id)) {
+                        component = symbolPaletteInstance[i].componentInstance;
+                        break;
+                    }
+                }
+                component.invokeMethodAsync(symbolPaletteDragLeave);
+            }
+
+            this.helper = function (e) {
+                const previewID = "previewID";
+                const symbolSelectedClass = "e-symbol-selected";
+                const accordianControl = "e-control e-accordion";
+                const renderPreviewSymbol = 'RenderPreviewSymbol';
+                const symbolHover = "e-symbol-hover";//helperElement
+                const helperElement = "helperElement";
+                //Used to check and remove the selected CSS class names starts here
+                var SymbolSelection = document.getElementsByClassName(symbolSelectedClass)
+                for (var a = 0; a < SymbolSelection.length; a++) {
+                    if (target != SymbolSelection) {
+                        SymbolSelection[a].classList.remove(symbolSelectedClass)
+                    }
+                }
+                //Used to check and remove the selected CSS class names Ends     here
+                var PaletteControl = document.getElementsByClassName(accordianControl)[0];
+                var target = _this.draggable.currentStateTarget;
+
+                var visualElement = sf.base.createElement('div', {
+                    className: 'e-cloneproperties e-draganddrop e-grid e-dragclone',
+                    styles: 'height:"auto",  width:' + PaletteControl.offsetWidth
+                });
+                var id = e.sender.srcElement.id
+                var checkElement = document.getElementById(id)
+                for (var k = 0; k < checkElement.classList.length; k++) {
+                    if (checkElement.classList[k] === symbolHover) {
+                        checkElement.classList.add(symbolSelectedClass)
+                    }
+                }
+                var previewElement = document.getElementById(previewID)
+                if (previewElement === null) {
+                    previewElement = e.sender.target
+                }
+
+                if (previewElement) {
+                    visualElement.setAttribute("id", helperElement)
+                    document.body.appendChild(visualElement);
+                    return visualElement;
+                }
+            };
+
+            this.dragStart = function (e) {
+                e.bindEvents(e.dragElement);
+            };
+
+            this.drag = function (e) {
+                const diagramClass = "e-diagram";
+                if (!parentsUntil(e.target, diagramClass)) {
+                    const helperElement = "helperElement";
+                    const previewID = "previewID";
+                    const previewElementValue = "previewElement"
+                    var previewElement = document.getElementById(previewID);
+                    if (previewElement) {
+                        var visualElement = sf.base.createElement('div', {
+                            className: 'e-cloneproperties e-draganddrop e-grid e-dragclone',
+                            styles: 'height:"auto";  width:' + previewElement.style.width
+                        });
+
+                        var cln = previewElement.cloneNode(true);
+                        cln.style.display = "Block"
+                        cln.style.visibility = true;
+
+                        cln.setAttribute("id", "clonedNode")
+                        visualElement.appendChild(cln)
+                        visualElement.setAttribute("id", previewElementValue)
+                        var a = document.getElementById(helperElement)
+                        if (a.children[0]) {
+                            a.removeChild(a.children[0])
+                        }
+                        a.appendChild(visualElement)
+                    }
+                }
+            };
+
+            this.dragStop = function (e) {
+                const diagramClass = "e-diagram";
+                if (!parentsUntil(e.target, diagramClass)) {
+                    const helperElements = "helperElement";
+                    var helperElement = document.getElementById(helperElements)
+                    helperElement.remove()
+                }
+            };
+            function parentsUntil(elem, selector, isID) {
+                var parent = elem;
+                while (parent) {
+                    if (isID ? parent.id === selector : hasClass(parent, selector)) {
+                        break;
+                    }
+                    parent = parent.parentNode;
+                }
+                return parent;
+            }
+            function hasClass(element, className) {
+                var eClassName = (typeof element.className === 'object') ? element.className.animVal : element.className;
+                return ((' ' + eClassName + ' ').indexOf(' ' + className + ' ') > -1) ? true : false;
+            }
+
+            this.initializeDrag(parent);
+        }
+
+        InitDraggable.prototype.initializeDrag = function (parent) {
+            var element = parent.children[0]
+            this.draggable = new sf.base.Draggable(element, {
+                dragTarget: '.e-symbol-draggable',
+                helper: this.helper,
+                dragStart: this.dragStart,
+                drag: this.drag,
+                dragStop: this.dragStop,
+                preventDefault: false
+            });
+            var droppableElements = document.getElementsByClassName("e-control e-diagram e-lib e-droppable e-tooltip")
+
+            for (var i = 0; i < droppableElements.length; i++) {
+                this.droppable = new sf.base.Droppable(droppableElements[i], {
+                    accept: '.e-dragclone',
+                    drop: this.drop,
+                    over: this.over,
+                    out: this.out
+                });
+            }
+
+
+        };
+        /**
+        * To destroy the Draggable
+        * @return {void}
+        * @hidden
+        */
+
+
+        InitDraggable.prototype.destroy = function () {
+            this.draggable.destroy();
+        };
+
+        return InitDraggable;
+    }();
+function PalettegetMouseEvents(evt) {
+    var mouseEventArgs = {};
+    mouseEventArgs = {
+        altKey: evt.altKey, shiftKey: evt.shiftKey, ctrlKey: evt.ctrlKey, detail: evt.detail,
+        metaKey: evt.metaKey, screenX: evt.screenX, screenY: evt.screenY,
+        clientX: evt.clientX, clientY: evt.clientY,
+        offsetX: evt.offsetX, offsetY: evt.offsetY, type: evt.type
+    }
+
+    return mouseEventArgs;
+}
+//Symbol palette Snippet Ends here here 
 
 window.getScrollerWidth = function () {
     var outer = createHtmlElement('div', { 'style': 'visibility:hidden; width: 100px' });
@@ -561,6 +837,7 @@ window.onAddWireEvents = function (element, component, interval) {
     element.addEventListener('scroll', _.throttle(e => invokeDiagramEvents(e, component), interval));
     
     element.addEventListener('mousewheel', _.throttle(e => invokeDiagramEvents(e, component), 0));
+    element.addEventListener('keydown', _.throttle(e => invokeDiagramEvents(e, component), 0));
 };
 
 function invokeDiagramEvents(e, component) {
@@ -570,9 +847,12 @@ function invokeDiagramEvents(e, component) {
             window.eventStarted = true;
             args.eventInvokeValue = ++window.eventInvokeValue;
         }
-        if (e.type != "scroll" || (e.type == "scroll" && !isMouseWheel)) {
+        if (e.type == "keydown" || e.type != "scroll" || (e.type == "scroll" && !isMouseWheel)) {
             component.invokeMethodAsync('InvokeDiagramEvents', args);
         }
+    }
+    if (e.type == "mouseup") {
+        e.currentTarget.focus();
     }
 }
 
@@ -582,7 +862,7 @@ function getMouseEvents(evt) {
         altKey: evt.altKey, shiftKey: evt.shiftKey, ctrlKey: evt.ctrlKey, detail: evt.detail,
         metaKey: evt.metaKey, screenX: evt.screenX, screenY: evt.screenY,
         clientX: evt.clientX, clientY: evt.clientY,
-        offsetX: evt.offsetX, offsetY: evt.offsetY, type: evt.type
+        offsetX: evt.offsetX, offsetY: evt.offsetY, type: evt.type, key: evt.key, keyCode: evt.keyCode
     }
     if (evt.currentTarget) {
         var bounds = measureScrollValues(evt.currentTarget.id);
@@ -609,7 +889,7 @@ function getMouseEvents(evt) {
         window.inAction = false;
     }
 
-    if (evt.type == "mouseleave" || evt.type == "mousmove" || evt.type == "mousedown" || evt.type == "mouseup") {
+    if (evt.type == "mouseleave" || evt.type == "mousmove" || evt.type == "mousedown" || evt.type == "mouseup" || evt.type == "keydown") {
         evt.preventDefault();
     }
 
